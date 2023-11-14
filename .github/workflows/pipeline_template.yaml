@@ -15,22 +15,22 @@ jobs:
       - name: Terraform Init
         id: fmt
         run: terraform init
-        working-directory: "./${{ inputs.working-directory }}"
+        working-directory: ./
 
       - name: Terraform fmt
         id: init
         run: terraform fmt -check
-        working-directory: "./${{ inputs.working-directory }}"
+        working-directory: ./
 
       - name: Terraform Validate
         id: validate
         run: terraform validate -no-color
-        working-directory: "./${{ inputs.working-directory }}"
+        working-directory: ./
 
       - name: Terraform Plan
         id: plan
         run: terraform plan -out=${{ github.workspace }}/tfplanoutput/tfplan
-        working-directory: "./${{ inputs.working-directory }}"
+        working-directory: ./
 
       - name: Upload Artifacts for apply phase 
         uses: actions/upload-artifact@v3
@@ -52,7 +52,7 @@ jobs:
       - name: Terraform Init
         id: fmt
         run: terraform init
-        working-directory: "./${{ inputs.working-directory }}"
+        working-directory: ./
 
       - name: Download Build Artifact
         uses: actions/download-artifact@v3
@@ -65,10 +65,10 @@ jobs:
         id: apply
         if: contains(github.event.head_commit.message, 'terraform apply')
         run: terraform apply -auto-approve tfplan
-        working-directory: "./${{ inputs.working-directory }}"
+        working-directory: ./
 
       - name: Terraform Destroy
         id: destroy
         if: contains(github.event.head_commit.message, 'terraform destroy')
         run: terraform destroy -auto-approve
-        working-directory: "./${{ inputs.working-directory }}"
+        working-directory: ./
