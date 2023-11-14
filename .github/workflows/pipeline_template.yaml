@@ -27,6 +27,19 @@ jobs:
         run: terraform validate -no-color
         working-directory: ./
 
+      - id: Terraform infracost
+        continue-on-error: true
+        name: Terraform infracost
+        working-directory: ./
+        run: |
+          echo "## Running infracost" >> $GITHUB_STEP_SUMMARY
+          curl -fsSL https://raw.githubusercontent.com/infracost/infracost/master/scripts/install.sh | sh
+          infracost configure set api_key ${{ secrets.INFRACOST_API_KEY_FREE }}
+          infracost configure set currency GBP
+          infracost breakdown --path ./terraform.tfplan.json --format=json --out-file=/tmp/infracost.json >> $GITHUB_STEP_SUMMARY
+          infracost diff --path ./terraform.tfplan.json --format=json --out-file=/tmp/infracost.json
+          infracost comment github --path=/tmp/infracost.json --repo="${{ github.repository }}" --github-token="${{ github.token }}" --pull-request="${{github.event.pull_request.number}}" --behavior=new --show-all-projects
+
       - name: Terraform Plan
         id: plan
         run: terraform plan
