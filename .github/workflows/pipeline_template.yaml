@@ -49,12 +49,5 @@ jobs:
 
       - name: Terraform Apply
         id: apply
-        if: contains(github.event.head_commit.message, 'terraform apply')
         run: terraform apply -auto-approve
-        working-directory: ./
-
-      - name: Terraform Destroy
-        id: destroy
-        if: contains(github.event.head_commit.message, 'terraform destroy')
-        run: terraform destroy -auto-approve
         working-directory: ./
