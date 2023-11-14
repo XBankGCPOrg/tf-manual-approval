@@ -1,0 +1,76 @@
+name : pipeline template
+on:
+  workflow_call:
+  push:
+    branches:
+      - main
+jobs:
+  terraform-plan:
+    name: terraform iac - plan
+    needs: [checkov]
+    if: needs.checkov.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: hashicorp/setup-terraform@v1
+
+      - name: Terraform Init
+        id: fmt
+        run: terraform init
+        working-directory: "./${{ inputs.working-directory }}"
+
+      - name: Terraform fmt
+        id: init
+        run: terraform fmt -check
+        working-directory: "./${{ inputs.working-directory }}"
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+        working-directory: "./${{ inputs.working-directory }}"
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -out=${{ github.workspace }}/tfplanoutput/tfplan
+        working-directory: "./${{ inputs.working-directory }}"
+
+      - name: Upload Artifacts for apply phase 
+        uses: actions/upload-artifact@v3
+        with:
+         name: artifact
+         path: ${{ github.workspace }}/tfplanoutput/
+         if-no-files-found: error
+
+  terraform-apply:
+    name: terraform iac - apply
+    needs: [terraform-plan]
+    runs-on: ubuntu-latest
+    environment: terraform-environment
+    steps:
+      - uses: actions/checkout@v3
+    
+      - uses: hashicorp/setup-terraform@v1
+
+      - name: Terraform Init
+        id: fmt
+        run: terraform init
+        working-directory: "./${{ inputs.working-directory }}"
+
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: artifact
+          path: ${{ github.workspace }}/tfplanoutput/
+
+
+      - name: Terraform Apply
+        id: apply
+        if: contains(github.event.head_commit.message, 'terraform apply')
+        run: terraform apply -auto-approve tfplan
+        working-directory: "./${{ inputs.working-directory }}"
+
+      - name: Terraform Destroy
+        id: destroy
+        if: contains(github.event.head_commit.message, 'terraform destroy')
+        run: terraform destroy -auto-approve
+        working-directory: "./${{ inputs.working-directory }}"

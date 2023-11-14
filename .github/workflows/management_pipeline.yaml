@@ -1,0 +1,10 @@
+name: Management Pipeline
+on:
+  workflow_call:
+  push:
+    branches:
+      - main
+jobs:
+  management:
+    uses: ./.github/workflows/pipeline_template.yaml
+
