@@ -7,8 +7,6 @@ on:
 jobs:
   terraform-plan:
     name: terraform iac - plan
-    needs: [checkov]
-    if: needs.checkov.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
