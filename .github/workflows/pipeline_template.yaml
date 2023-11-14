@@ -27,7 +27,7 @@ jobs:
         run: terraform validate -no-color
         working-directory: ./
 
-      - id: Terraform infracost
+      - id: infracost
         continue-on-error: true
         name: Terraform infracost
         working-directory: ./
