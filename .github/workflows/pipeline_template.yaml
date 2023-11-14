@@ -32,13 +32,6 @@ jobs:
         run: terraform plan -out=${{ github.workspace }}/tfplan.out
         working-directory: ./
 
-      - name: Upload Artifacts for apply phase 
-        uses: actions/upload-artifact@v3
-        with:
-         name: artifact
-         path: ${{ github.workspace }}/
-         if-no-files-found: error
-
   terraform-apply:
     name: terraform iac - apply
     needs: [terraform-plan]
@@ -54,17 +47,10 @@ jobs:
         run: terraform init
         working-directory: ./
 
-      - name: Download Build Artifact
-        uses: actions/download-artifact@v3
-        with:
-          name: artifact
-          path: ${{ github.workspace }}/
-
-
       - name: Terraform Apply
         id: apply
         if: contains(github.event.head_commit.message, 'terraform apply')
-        run: terraform apply -auto-approve tfplan.out
+        run: terraform apply -auto-approve
         working-directory: ./
 
       - name: Terraform Destroy
