@@ -1,14 +1,11 @@
-name: 01-management
+name: 04-platformtools
 on:
   workflow_call:
-    pull_request:
-      branches: [ "main" ]
-      types: [ closed, opened, synchronize, reopened ]
-    push:
-      branches:
-        - main
+  push:
+    branches:
+      - main
     paths:
-      - '01-management/**'
+      - '04-platformtools/**'
 jobs:
   management:
     permissions: # <- this section is needed for workload identity
@@ -17,6 +14,6 @@ jobs:
     uses: ./.github/templates/pipeline_template.yaml
     secrets: inherit
     with:
-      working-directory: 01-management
+      working-directory: 04-platformtools
       workload-identity-provider: projects/271270271496/locations/global/workloadIdentityPools/github-b-control-pool/providers/github-b-control-provider
-      workload-identity-serviceaccount: sa-control@prj-b-lz-seed-er1w.iam.gserviceaccount.com
+      workload-identity-serviceaccount:  sa-control@prj-b-lz-seed-er1w.iam.gserviceaccount.com

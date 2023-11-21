@@ -1,0 +1,212 @@
+name : pipeline template
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        required: true
+        type: string
+      workload-identity-provider:
+        required: true
+        type: string
+      workload-identity-serviceaccount:
+        required: true
+        type: string
+jobs:
+  checkov:
+    name: checkov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.8
+      - name: Test with Checkov
+        id: checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: "./${{ inputs.working-directory }}"
+          config_file: ./.github/.checkov.config.yaml
+  terraform-plan:
+    name: terraform iac - plan
+    needs: [checkov]
+    if: needs.checkov.result == 'success'
+    runs-on: ubuntu-latest
+    permissions: # <- this section is needed for workload identity
+      contents: 'read'
+      id-token: 'write'
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v0
+        with:
+          #replace project id, provider id and pool id here
+          #workload_identity_provider: projects/<project-id>/locations/global/workloadIdentityPools/<pool-id>/providers/<provider-id>
+          workload_identity_provider: ${{ inputs.workload-identity-provider }}
+#          service_account: <org-terrafomr@sa>
+#          replace service account here
+          service_account: ${{ inputs.workload-identity-serviceaccount }}
+          access_token_lifetime: 3600s
+
+      - uses: hashicorp/setup-terraform@v1
+      
+      - name: Terraform Init
+        id: fmt
+        env:
+          GCP_LZ_GIT_USER: ${{ secrets.OSTTRA_GITHUB_USER }}
+          GCP_LZ_GIT_TOKEN: ${{ secrets.OSTTRA_GITHUB_TOKEN }}
+        run: |
+          git config --global url."https://${GCP_LZ_GIT_USER}:${GCP_LZ_GIT_TOKEN}@github.com/osttra".insteadOf "https://github.com/osttra"
+          terraform init
+        working-directory: "./${{ inputs.working-directory }}"
+
+      - name: Terraform fmt
+        id: init
+        run: terraform fmt -check
+        working-directory: "./${{ inputs.working-directory }}"
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+        working-directory: "./${{ inputs.working-directory }}"
+
+      - id: tf-plan
+        name: Terraform plan
+        continue-on-error: true
+        run: |
+          terraform plan -input=false -out ../plan.out -no-color
+          terraform show -json ../plan.out > ./terraform.tfplan.json # need for infracost & conftest
+          terraform show ../plan.out -no-color > ./terraform.tfplan.txt # can use for PR comments truncation code below
+          cat ./terraform.tfplan.txt
+        working-directory: "./${{ inputs.working-directory }}"
+      
+      - id: infracost
+        continue-on-error: true
+        name: Terraform infracost
+        working-directory: "./${{ inputs.working-directory }}"
+        run: |
+          echo "## Running infracost" >> $GITHUB_STEP_SUMMARY
+          curl -fsSL https://raw.githubusercontent.com/infracost/infracost/master/scripts/install.sh | sh
+          infracost configure set api_key ${{ secrets.INFRACOST_API_KEY_FREE }}
+          infracost configure set currency GBP
+          infracost breakdown --path ./terraform.tfplan.json --format=json --out-file=/tmp/infracost.json >> $GITHUB_STEP_SUMMARY
+          infracost diff --path ./terraform.tfplan.json --format=json --out-file=/tmp/infracost.json
+          infracost comment github --path=/tmp/infracost.json --repo="${{ github.repository }}" --github-token="${{ github.token }}" --pull-request="${{github.event.pull_request.number}}" --behavior=new --show-all-projects
+
+
+  terraform-apply:
+    name: terraform iac - apply
+    needs: [terraform-plan]
+    runs-on: ubuntu-latest
+    environment: terraform-manual-approval
+    permissions: # <- this section is needed for workload identity
+      contents: 'read'
+      id-token: 'write'
+    steps:
+      - uses: actions/checkout@v3
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v0
+        with:
+          #replace project id, provider id and pool id here
+          #workload_identity_provider: projects/<project-id>/locations/global/workloadIdentityPools/<pool-id>/providers/<provider-id>
+          workload_identity_provider: ${{ inputs.workload-identity-provider }}
+#          service_account: <org-terrafomr@sa>
+#          replace service account here
+          service_account: ${{ inputs.workload-identity-serviceaccount }}
+          access_token_lifetime: 3600s
+
+      - uses: hashicorp/setup-terraform@v1
+
+      - name: Terraform Init
+        id: fmt
+        env:
+          GCP_LZ_GIT_USER: ${{ secrets.OSTTRA_GITHUB_USER }}
+          GCP_LZ_GIT_TOKEN: ${{ secrets.OSTTRA_GITHUB_TOKEN }}
+        run: |
+          git config --global url."https://${GCP_LZ_GIT_USER}:${GCP_LZ_GIT_TOKEN}@github.com/osttra".insteadOf "https://github.com/osttra"
+          terraform init
+        working-directory: "./${{ inputs.working-directory }}"
+      
+      
+      - name: Terraform Apply
+        id: apply
+        run: terraform apply -auto-approve
+        working-directory: "./${{ inputs.working-directory }}"
+
+      - id: Pull-Request-Comment
+        name: Post comment to Pull Request
+        continue-on-error: true
+        uses: actions/github-script@v6
+        if: github.event_name == 'pull_request'
+        env:
+          PLAN: ${{ steps.tf-plan.outputs.stdout }}\n${{ steps.tf-plan.outputs.stderr }} ## use file if we hit argument too long error, switched to use plan.out
+        with:
+          script: |
+            // const { readFile } = require("fs/promises")
+            // const PLAN = await readFile('${{ env.FAST_STAGE }}/${{ steps.create-truncated-plan-file.outputs.plan_file_name }}')
+            const output = `### Terraform Initialization \`${{ steps.tf-init.outcome }}\`
+
+            ### Terraform Validation \`${{ steps.tf-validate.outcome }}\`
+
+            <details><summary>Validation Output</summary>
+
+            \`\`\`\n
+            ${{ steps.tf-validate.outputs.stdout }}
+            \`\`\`
+
+            </details>
+
+            ### Terraform Plan \`${{ steps.tf-plan.outcome }}\`
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`\n
+            $${process.env.PLAN.split('\n').filter(l => l.match(/^([A-Z\s].*|)$$/)).join('\n')}
+            \`\`\`
+
+            </details>
+
+            ### Terraform Apply \`${{ steps.tf-apply.outcome }}\`
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ env.tf_actions_working_dir }}\`, Workflow: \`${{ github.workflow }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+      - id: pr-short-comment
+        name: Post comment to Pull Request
+        uses: actions/github-script@v6
+        if: github.event_name == 'pull_request' && steps.pr-comment.outcome != 'success'
+        with:
+          script: |
+            const output = `### Terraform Initialization \`${{ steps.tf-init.outcome }}\`
+
+            ### Terraform Validation \`${{ steps.tf-validate.outcome }}\`
+
+            ### Terraform Plan \`${{ steps.tf-plan.outcome }}\`
+
+            Plan output is in the action log.
+
+            ### Terraform Apply \`${{ steps.tf-apply.outcome }}\`
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Working Directory: \`${{ env.tf_actions_working_dir }}\`, Workflow: \`${{ github.workflow }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })
+
+      - name: Terraform Destroy
+        id: destroy
+        if: contains(github.event.head_commit.message, 'terraform destroy')
+        run: terraform destroy -auto-approve
+        working-directory: "./${{ inputs.working-directory }}"

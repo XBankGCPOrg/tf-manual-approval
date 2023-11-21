@@ -1,22 +1,18 @@
-name: 01-management
+name: Terratest
 on:
-  workflow_call:
-    pull_request:
-      branches: [ "main" ]
-      types: [ closed, opened, synchronize, reopened ]
-    push:
-      branches:
-        - main
-    paths:
-      - '01-management/**'
+  pull_request:
+    types:
+      - opened
+      - synchronize
+  workflow_dispatch:
 jobs:
   management:
     permissions: # <- this section is needed for workload identity
       contents: 'read'
       id-token: 'write'
-    uses: ./.github/templates/pipeline_template.yaml
+    uses: ./.github/templates/test_execution_pipeline.yaml
     secrets: inherit
     with:
-      working-directory: 01-management
+      working-directory: terratest/test
       workload-identity-provider: projects/271270271496/locations/global/workloadIdentityPools/github-b-control-pool/providers/github-b-control-provider
       workload-identity-serviceaccount: sa-control@prj-b-lz-seed-er1w.iam.gserviceaccount.com
