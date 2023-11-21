@@ -1,5 +1,8 @@
 gcp-lz-management:
   - 01-management/**
 
+gcp-lz-github-workflow:
+  - .github/workflows/**
+
 gcp-lz-platformtools:
-  - 02-platformtools/**
+  - 04-platformtools/**
